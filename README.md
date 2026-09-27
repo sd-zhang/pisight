@@ -134,14 +134,16 @@ cd pisight
 ### Build
 
 ```bash
-# This will configure Buildroot and compile the kernel, rootfs, and image
+# Buildroot needs Linux; on macOS, run this in a Linux VM.
+# Build from the webcampi submodule; the top-level wrapper has an obsolete patch step.
+cd webcampi
 ./build.sh
 ```
 
 When complete, the final SD card image will be in:
 
 ```
-buildroot/output/images/sdcard.img
+webcampi/buildroot/output/images/sdcard.img
 ```
 
 Flash it as described in [Installation](#installation).
