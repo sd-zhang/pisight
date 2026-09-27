@@ -39,7 +39,7 @@ PiSight keeps all the core functionality of Webcam Pi while adding hardware inte
 ### Video pipeline
 
 - **Hardware MJPEG encoding on the Pi Zero.** The original Pi Zero's single ARMv6 core cannot compress HD video in software, so PiSight hands raw camera frames to the Pi's VideoCore **hardware JPEG encoder** (`bcm2835-codec`) **zero‑copy over DMA‑BUF**, straight from the camera ISP. The CPU never touches pixel data, keeping the board responsive while it streams 720p/1080p MJPEG.
-- **Adjustable JPEG quality, resolution, and field of view** from a plain‑text config file on the SD card — no rebuild required. See [Configuration](#configuration).
+- **Adjustable JPEG quality, resolution, field of view and exposure** through UVC controls and persistent settings. See [Configuration](#configuration).
 - **Enumerates as an Apple “iSight”** (manufacturer *Apple Computer, Inc.*), so the host sees it as a genuine iSight camera.
 
 ### iSight enclosure integration
@@ -78,25 +78,44 @@ PiSight keeps all the core functionality of Webcam Pi while adding hardware inte
 
 ## Configuration
 
-PiSight reads its settings at boot from **`isight.json` on the FAT boot partition** — the same volume your Mac or PC mounts when you plug in the SD card. Edit the file, save, eject, and reboot; there is no web UI or login. The file is created with defaults on first boot, and if it is missing or invalid PiSight falls back to safe built‑in values and still boots.
+PiSight reads its settings at boot from **`isight.json` on the FAT boot partition**. The file is created with defaults on first boot. After sealing the case, use the webcam's normal UVC controls for resolution, zoom/FOV and brightness/EV; use the PiSight extension control to save FOV, EV, logo mode and microphone presence. This uses the existing UVC control interface and adds no network or serial USB function.
 
 Default `isight.json`:
 
 ```json
 {
-  "resolutions": ["1280x720", "1920x1080"],
+  "resolutions": ["1280x720", "1920x1080", "1280x960"],
   "fov": 75,
+  "ev": 0,
   "logo_light": "activity",
-  "quality": 72
+  "quality": 72,
+  "microphone": true
 }
 ```
 
 | Key           | Values                    | Default                    | Description |
 | ------------- | ------------------------- | -------------------------- | ----------- |
-| `resolutions` | list of `"WxH"`           | `["1280x720","1920x1080"]` | The MJPEG modes advertised to the host over USB. The host can only pick from this list; the first entry is the default mode. |
-| `fov`         | integer degrees           | `75`                       | Field of view. The full sensor is ~75°; a smaller value crops the centre via the ISP for an optical‑style zoom at no CPU cost. `75` or higher keeps the full frame. |
+| `resolutions` | list of `"WxH"`           | `["1280x720","1920x1080","1280x960"]` | The MJPEG modes advertised to the host over USB. The host can only pick from this list; the first entry is the default mode. `1280x960` provides 4:3 framing; the other defaults are 16:9. |
+| `fov`         | integer degrees           | `75`                       | Approximate digital crop referenced to the camera's 75° diagonal 16:9 field of view. Leave at `75` to compare 16:9 and 4:3 framing; smaller values crop further via the ISP. The angle is not calibrated for 4:3. |
+| `ev`          | `-2.0`–`2.0`              | `0`                        | Exposure compensation, in EV. The UVC Brightness control maps to tenths of an EV (`-20`–`20`). |
 | `quality`     | `1`–`100`                 | `72`                       | JPEG quality handed to the hardware encoder. Higher means better image and larger frames. |
 | `logo_light`  | `off` / `on` / `activity` | `activity`                 | Rear Apple‑logo LED (GPIO 23). `activity` mirrors the streaming indicator; `on`/`off` hold it steady. |
+| `microphone`  | `true` / `false` | `true` | Expose the ICS43434 as a mono 48 kHz USB microphone. Set to `false` and reboot for camera-only USB mode. |
+
+Existing `isight.json` files keep their own resolution list; add `"1280x960"` there to expose 4:3 after updating the image.
+
+The host selects resolution and aspect ratio through the standard UVC MJPEG formats. UVC Zoom Absolute (`100`–`350`, where `100` is the uncropped view) changes FOV; UVC Brightness (`-20`–`20`) changes EV. These standard controls apply live and reset to the saved values on restart. The USB microphone exposes the normal UAC2 mute control when enabled.
+
+On Linux, build the small host configurator with `cc -O2 -Wall host/pisightctl.c -lm -o pisightctl`. It discovers PiSight's extension unit by GUID and saves settings over UVC:
+
+```bash
+./pisightctl /dev/video0 get
+./pisightctl /dev/video0 set --fov 54 --ev -0.3 --logo activity --mic on
+```
+
+FOV and EV apply immediately; power-cycle PiSight for logo mode or microphone presence changes. The tool verifies the value returned by the camera after a save. A camera application's resolution selection remains independent of these saved settings. On other hosts, standard UVC video/audio controls still work; the bundled settings utility currently targets Linux.
+
+The ICS43434 uses the Pi Zero's I²S pins: SCK/BCLK on GPIO 18 (pin 12), WS/LRCLK on GPIO 19 (pin 35), SD on GPIO 20 (pin 38), plus 3.3 V and ground. Connect the mic's L/R select to ground for the left channel. If the microphone does not appear, check `/tmp/pisight-mic.log` on the Pi and confirm the ALSA cards `PiSightMic` and `UAC2Gadget` are present.
 
 ## Building
 
