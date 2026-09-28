@@ -1,0 +1,8 @@
+# Local editor state and macOS metadata
+.idea/
+.DS_Store
+._*
+
+# Python and local build products
+__pycache__/
+*.py[cod]

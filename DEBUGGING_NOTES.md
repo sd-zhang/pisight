@@ -1,38 +1,87 @@
-# PiSight USB video and microphone handoff (2026-09-26)
+# PiSight: accepted baseline and remaining work
 
-## Current result on the Pi Zero Rev 1.3
+The user accepted the tested baseline on **2026-09-28**. The objective is smooth
+simultaneous camera and microphone operation, not another speculative image.
 
-- macOS now enumerates an **iSight camera** and an audio input named **Capture Inactive**. Discord can select/start that input, but the user hears/records no microphone signal.
-- The camera initially gave a black QuickTime preview. In a later Discord attempt, video **did start**, but startup took a long time and the frame rate was extremely low. We do not yet know whether both attempts used the same flashed image, or whether the later attempt used the diagnostic image.
-- The rear logo LED flashes briefly at boot and turns off. This is not evidence of UVC streaming: the daemon's GPIO initialization turns it on and the configured `activity` logo mode turns it off a second later.
-- A prior SD card/image, from before the microphone/settings work, is reported to work as a camera. We have not measured its frame rate against this build.
+Local image: `diagnostics/sdcard-audio-settings.img` (41,431,552 bytes).
+SHA-256: `244a83b7ad1cad01d9df80f99996fda27e62de0b45a22f3fb88e0a0393186c39`.
+Firmware source is committed in `webcampi` as `9dd445f` on
+`pizero-hw-mjpeg-encoder`. The image is a local build artifact, not a committed
+file or published release.
 
-## Verified failures already fixed
+## What is working
 
-1. The first new image had only macOS audio devices named **Playback Inactive** and **Capture Inactive**, and no camera. Its boot log showed the built-in `g_audio` driver bound the Pi Zero's only USB controller before ConfigFS UVC could bind (`Device or resource busy`). Commit `5607c37` in `webcampi` disables the legacy USB audio and MIDI gadget drivers.
-2. The next image advertised a Mac audio output rather than an input because the UAC2 ConfigFS channel masks were reversed. Commit `1a5d06e` sets `p_chmask=1`, `c_chmask=0`; the Mac now sees an audio input. Enumeration does not prove that the I2S-to-UAC2 audio bridge works.
+- 1280×720 hardware MJPEG with the microphone open: **29.960 distinct fps**,
+  six JPEG decode errors over about 117 seconds. Previous working image:
+  29.951 fps and seven errors. Rare corruption remains; the user accepts it.
+- Native simultaneous captures of 20 and 90 seconds: continuous 48 kHz audio
+  timestamps. Acoustic latency and subjective voice quality were not measured.
+- Live UVC gain, high-pass, low-pass and bypass settings reached the audio
+  processor and were read back. Audio defaults restored to 0 dB, 80 Hz–8 kHz.
+- Diagnostics enable/disable works. The 173,542-byte RAM snapshot log remained
+  identical 84 seconds after disabling. Diagnostics is off in RAM and saved
+  config; no hardware Save request was issued during the test.
+- Mic process CPU is about 9.1%, compared with about 4.8% before filtering.
+  Total CPU was around 71–72% in mostly active windows; these are not an exact
+  comparison with the previous fully active 67.9% interval.
 
-The current normal image is `webcampi/buildroot/output/images/sdcard.img` (SHA-256 `e9d89da16f7150d1bb7da683c9048210263992544cab0065718be14a7a431fbf`). The original working hardware MJPEG path is the baseline for comparison. Recent changes include the I2S overlay, UAC2 gadget function, UVC settings/controls, and another advertised resolution.
+Detailed evidence: [hardware report](diagnostics/capture-audio-settings-20260928/results.md).
+Offline checks and image contents: [verification report](diagnostics/audio-controls-tests/results.md).
+Future app protocol: [UVC audio and diagnostics](docs/uvc-audio-controls.md).
 
-## One-off diagnostic image and caveat
+## Diagnosis and fixes retained in this baseline
 
-`webcampi/buildroot/output/images/diagnostic/sdcard-video-diagnostic.img` (SHA-256 `775a0e63a30edf2f28e3e82c0ab0f8acf54b4e6592df5c0737938dd2f2623dfe`) is a repack of the normal root filesystem with extra logging. It leaves the normal image untouched. Build script: `/tmp/pisight-video-diag-build.sh`; its last staging directory is recorded in `/tmp/pisight-video-diag-stage-path`.
+Several defects overlapped; there was no single “bad cable” explanation.
 
-The diagnostic boot script captures setup output, UVC events and daemon output, process/ALSA state, mic bridge log, and kernel log to `/boot/PISIGHT.TXT`. **Its logger waits for `EVENT_STREAMON`, daemon death, or a 600-second timeout before writing the file.** The user's first look found no `PISIGHT.TXT`; that alone is inconclusive. Even after video starts, an absent file could mean no logged `STREAMON`, failed mount/write, wrong image, or logger failure. Do not infer a video root cause from absence of the file. If it remains absent, make the next diagnostic write an unconditional boot snapshot and update it after a preview attempt. Avoid another flash if the current card yielded the file after the later Discord test.
+1. Legacy audio gadget ownership initially prevented the composite camera from
+   binding. The UAC2 direction also needed correction to expose a microphone.
+2. pigpio's default PCM clock conflicted with I2S capture. Use `-t 0 -m`: PWM
+   clock selection, with the continuous GPIO sampling worker disabled.
+3. The audio bridge used CPU and accumulated queued audio even when the host
+   was not listening. The ALSA-event supervisor now starts/stops it with capture.
+4. DWC2 isochronous recovery could misattribute interrupt events and retire
+   video requests prematurely. Ownership/age checks were corrected. Audio IN
+   enable is aligned to the intended USB frame using a temporary SOF interrupt.
+5. Suppressed libcamera debug formatting and GPIO polling consumed CPU that
+   the Zero needed for streaming. Log filtering and event-driven GPIO/LEDs
+   restored headroom. Later camera micro-optimizations showed no meaningful
+   whole-device CPU improvement on hardware; do not overstate them.
 
-## Code paths and open questions
+These changes restored near-30-fps simultaneous operation. The kernel still
+records occasional NAK payload misses. In the latest first two sessions there
+were 11 video NAK payload misses, zero disabled video payload misses, and one
+late audio arm out of 140,201 schedules. The old recurring interrupt storm did
+not return. The hardware encoder reported zero failures/timeouts/resets.
 
-- UVC startup: `webcampi/package/uvc-gadget/S60uvc-gadget` applies `/boot/isight.json`, runs `uvc-gadget.sh`, then starts `/usr/bin/uvc-gadget`. The hardware MJPEG encoder is in `package/uvc-gadget/0003-add-bcm2835-hardware-mjpeg-encoder.patch`; UVC event logging is in patch `0005-uvc-add-event-diagnostic-logging.patch`. Check actual `PROBE`, `COMMIT`, `STREAMON`, `FIRST_FRAME`, and daemon errors before attributing the slow video to USB bandwidth or audio.
-- Microphone bridge: `board/raspberrypizero/rootfs-overlay/etc/init.d/S61pisight-mic` waits for ALSA cards `PiSightMic` and `UAC2Gadget`, then runs `alsaloop -C pisight_mic -P hw:CARD=UAC2Gadget,DEV=0 -f S16_LE -c 1 -r 48000 -t 50000 -n`, logging to `/tmp/pisight-mic.log`. `asound.conf` defines `pisight_mic` as a route from the I2S capture card's left channel. The device-tree overlay is `board/raspberrypizero/pisight-ics43434.dtso`. Determine whether the bridge starts, whether PCM reads nonzero samples, and whether UAC2 transmits them.
-- The Mac's **Capture Inactive** label is the kernel UAC2 function's idle alternate-setting string, not a reliable health indicator. Cosmetic renaming can follow a working mic/video path.
-- `uvc_stream_enable` and `uvc_stream_start_encoded` have unchecked return paths; a failed source or V4L2 `STREAMON` can be hidden. Verify from logs before changing this.
+## Diagnostics and known limits
 
-The user is tired of flashing and wants evidence-led fixes. Preserve the unrelated staged `.idea` files in the parent repo. The `webcampi` submodule is clean at this handoff; no diagnostic source changes are committed.
+Periodic snapshots stay in RAM, capped at 4 MiB; individual appends are capped
+at 256 KiB. The cap applies to `PISIGHT.TXT`, not every basic process log.
+Automatic SD log copies are removed. Explicit settings Save and initial config
+seeding/repair still write to the SD card. Default diagnostics is **off**.
 
-## Astra independent review
+Downloading the full log during simultaneous capture briefly reduced distinct
+video delivery to 23.9 fps in the affected ten-second window, with 14 JPEG
+errors. It recovered to 29.964 fps for the following minute; audio timestamps
+remained continuous. Avoid or throttle bulk downloads in the future app.
+Small setting changes and bulk log transfers are different workloads.
 
-Astra found a reproducible **host-not-recording audio-loop scheduling problem**, but did not claim it explains every symptom. The bundled `alsaloop` 1.2.13 requests `SCHED_RR` priority 99. It starts at boot even before the host opens microphone capture. In a controlled mock-PCM trial using the exact bundled source, five seconds of clocked playback used 0.003 CPU seconds; five seconds of frozen playback used 1.399 CPU seconds (~28%) and repeatedly overran capture. The mock models ALSA pacing, not the Pi DMA/USB/video hardware. This is a plausible cause of video startup delays on the single-core Zero, but the slow video seen after Discord opened the mic and the silent mic remain unexplained.
+Hardware Save/reboot persistence was not tested in the latest run; real JSON
+scripts, validation, locking and failure cleanup passed offline. Filter response
+and exact bypass conversion were tested natively and under ARM1176 emulation.
+The 4 MiB rotation limit was tested offline. Neither emulation nor ambient WAV
+levels prove acoustic quality, latency, or physical shutter operation.
 
-Astra separately verified that the production left-channel ALSA route can convert stereo S32_LE input to mono S16_LE: a 48,000-sample mock produced 48,000 correct nonzero left-channel samples. That test does not prove the physical mic is wired, receiving clocks, or reaching the gadget. The bridge startup script prints `OK` before `alsaloop` succeeds and does not supervise it; the input can remain enumerated if the bridge dies.
+The physical shutter sensor has not followed the shutter on this unit. The user
+accepts a purely mechanical shutter; do not turn that into another required task.
 
-The reproduction details and source anchors are in `/tmp/pisight-alsa-repro/README.md` (local temporary artifact). No production source or image was modified. The highest-value **no-reflash** test, if the Pi can plug into the Linux machine that runs this repository, is to measure fixed-mode 1280×720 MJPEG frame delivery with the USB microphone closed, actively recording raw PCM, then closed again. Inspect raw sample levels separately from Discord. Collect `PISIGHT.TXT` if it appeared after the later stream; its absence alone remains inconclusive. Only patch bridge lifetime/scheduling after target evidence confirms its role.
+## Where to go next
+
+The firmware is ready for a future UVC settings app. Keep live adjustments in RAM
+and Save explicit. The user has not requested an app implementation or another
+flash. No serial/web interface is needed. No current capture or build is running.
+
+For chronology and rejected hypotheses, see the
+[engineering story](docs/the-road-to-simultaneous-av.md) and
+[archived development log](docs/history/development-log-2026-09.md). The archive
+contains superseded instructions and candidate statuses, not current guidance.

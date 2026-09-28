@@ -1,0 +1,31 @@
+gadget: test a 250-us video service interval alongside UAC2
+
+Target logs show missed isochronous payloads with successful MJPEG encoding,
+and host JPEG errors concentrate during microphone capture. Test reduced
+video service frequency while keeping the microphone and 30fps modes enabled.
+
+High-speed endpoints with more than one transaction force bInterval=1, so
+both maxpacket and interval must change. 1024 bytes at bInterval=2 provides
+4.048 MB/s after 12-byte UVC headers, versus the measured 720p requirement
+of about 1.28 MB/s at 30fps. This is a hardware-test candidate: high-detail
+and larger-resolution payloads still require throughput validation.
+
+--- a/scripts/uvc-gadget.sh
++++ b/scripts/uvc-gadget.sh
+@@ -121,9 +121,13 @@
+ 		cd $OLDPWD
+ 	fi
+ 
+-	# This configures the USB endpoint to allow 32x 1024 byte packets per
+-	# microframe. Other valid values are 1024 and 3072.
+-	echo 2048 > functions/$FUNCTION/streaming_maxpacket
++	# This configures the USB endpoint for one 1024-byte transaction every
++	# 250 us at high speed. More than one transaction forces bInterval=1,
++	# so reducing the service rate requires maxpacket <= 1024 as well.
++	# The payload budget is 4.048 MB/s with 12-byte UVC headers. Keep the
++	# camera's advertised frame rate and the UAC2 microphone unchanged.
++	echo 1024 > functions/$FUNCTION/streaming_maxpacket
++	echo 2 > functions/$FUNCTION/streaming_interval
+ 
+ 	ln -s functions/$FUNCTION configs/c.1
+ }

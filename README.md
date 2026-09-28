@@ -1,6 +1,6 @@
 # PiSight
 
-This is an adaptation of [Webcam Pi](https://www.github.com/elcalzado/webcampi) intended to be used alongside some components from the Apple iSight webcam. It specifically targets the original **Raspberry Pi Zero** and offloads all video compression to the Pi's **hardware JPEG encoder**, so the tiny single-core board can stream 720p/1080p smoothly. If you're interested in building this, follow this documentation and my YouTube video!
+This is an adaptation of [Webcam Pi](https://www.github.com/elcalzado/webcampi) intended to be used alongside some components from the Apple iSight webcam. It specifically targets the original **Raspberry Pi Zero** and offloads all video compression to the Pi's **hardware JPEG encoder**, with simultaneous 720p video and microphone capture verified on hardware. If you're interested in building this, follow this documentation and my YouTube video!
 
 [![YouTube Video](https://img.youtube.com/vi/s-X41YuiVAM/maxresdefault.jpg)](https://www.youtube.com/watch?v=s-X41YuiVAM)
 
@@ -12,7 +12,8 @@ This is an adaptation of [Webcam Pi](https://www.github.com/elcalzado/webcampi) 
 4. [Setup](#setup)
 5. [Configuration](#configuration)
 6. [Building](#building)
-7. [Credits](#credits)
+7. [Tested baseline](#tested-baseline)
+8. [Credits](#credits)
 
 ## Required Hardware
 
@@ -38,9 +39,10 @@ PiSight keeps all the core functionality of Webcam Pi while adding hardware inte
 
 ### Video pipeline
 
-- **Hardware MJPEG encoding on the Pi Zero.** The original Pi Zero's single ARMv6 core cannot compress HD video in software, so PiSight hands raw camera frames to the Pi's VideoCore **hardware JPEG encoder** (`bcm2835-codec`) **zero‑copy over DMA‑BUF**, straight from the camera ISP. The CPU never touches pixel data, keeping the board responsive while it streams 720p/1080p MJPEG.
+- **Hardware MJPEG encoding on the Pi Zero.** The original Pi Zero's single ARMv6 core cannot compress HD video in software, so PiSight hands raw camera frames to the Pi's VideoCore **hardware JPEG encoder** (`bcm2835-codec`) **zero‑copy over DMA‑BUF**, straight from the camera ISP. Raw camera buffers pass through the ISP and encoder without a CPU-side pixel copy. USB handling, camera control, compressed-data handling and audio processing still use CPU.
 - **Adjustable JPEG quality, resolution, field of view and exposure** through UVC controls and persistent settings. See [Configuration](#configuration).
-- **Enumerates as an Apple “iSight”** (manufacturer *Apple Computer, Inc.*), so the host sees it as a genuine iSight camera.
+- **USB camera named “iSight” and input named “iSight Microphone”.** The microphone retains that name when active or inactive.
+- **Simultaneous camera and microphone:** mono 48 kHz I2S audio over UAC2, with live UVC gain, high-pass, low-pass and bypass controls ready for a future app.
 
 ### iSight enclosure integration
 
@@ -48,13 +50,12 @@ PiSight keeps all the core functionality of Webcam Pi while adding hardware inte
 - Lets you retain the original iSight’s tilt and axial twist
 - Reused original activity LED
 - Optional rear Apple logo illumination (configurable: `off` / `on` / `activity`)
-- Integrated IR shutter / privacy sensor
-	- For more info about how the sensor works check out: [isight-shutter](https://github.com/elcalzado/isight-shutter)
+- Optional shutter soft switch: GPIO 26 edges disconnect/reconnect camera and mic together, without a polling worker. The sensor on the tested assembly appears broken or miswired; a physical shutter still works mechanically. See [isight-shutter](https://github.com/elcalzado/isight-shutter) for wiring.
 - USB‑C breakout replaces the original connector area
 
 ## Installation
 
-1. Download the latest image from the [Releases](https://github.com/sd-zhang/pisight/releases) page.
+1. Build this branch, or use an image from [Releases](https://github.com/sd-zhang/pisight/releases). The accepted development image described below is local and has not been published as a release.
 2. Insert your microSD card into your host computer.
 3. Flash the image:
 	- Linux/macOS:
@@ -89,7 +90,9 @@ Default `isight.json`:
   "ev": 0,
   "logo_light": "activity",
   "quality": 72,
-  "microphone": true
+  "microphone": true,
+  "audio": {"gain_db": 0, "highpass_hz": 80, "lowpass_hz": 8000, "bypass": false},
+  "diagnostics": false
 }
 ```
 
@@ -101,8 +104,17 @@ Default `isight.json`:
 | `quality`     | `1`–`100`                 | `72`                       | JPEG quality handed to the hardware encoder. Higher means better image and larger frames. |
 | `logo_light`  | `off` / `on` / `activity` | `activity`                 | Rear Apple‑logo LED (GPIO 23). `activity` mirrors the streaming indicator; `on`/`off` hold it steady. |
 | `microphone`  | `true` / `false` | `true` | Expose the ICS43434 as a mono 48 kHz USB microphone. Set to `false` and reboot for camera-only USB mode. |
+| `audio` | gain/filter/bypass object | 0 dB, 80 Hz–8 kHz, bypass off | Live UVC tuning; explicit Save persists it. See the [protocol](docs/uvc-audio-controls.md) for limits. |
+| `diagnostics` | `true` / `false` | `false` | Enable bounded RAM snapshots for UVC readback. No periodic SD log copies. |
 
 Existing `isight.json` files keep their own resolution list; add `"1280x960"` there to expose 4:3 after updating the image.
+
+Firmware also supports live microphone gain, high-pass/low-pass cutoffs and bypass
+through UVC, with explicit Save to `isight.json`. Diagnostics are off by default
+(`"diagnostics": false`); enabled snapshots stay in RAM with a 4 MiB limit and
+can be downloaded through UVC. Periodic diagnostics no longer write to the SD
+card. These capabilities are ready for a future settings app; the existing
+camera CLI does not expose them. See the [audio and diagnostics protocol](docs/uvc-audio-controls.md).
 
 The host selects resolution and aspect ratio through the standard UVC MJPEG formats. UVC Zoom Absolute (`100`–`350`, where `100` is the uncropped view) changes FOV; UVC Brightness (`-20`–`20`) changes EV. These standard controls apply live and reset to the saved values on restart. The USB microphone exposes the normal UAC2 mute control when enabled.
 
@@ -113,7 +125,7 @@ On Linux, build the small host configurator with `cc -O2 -Wall host/pisightctl.c
 ./pisightctl /dev/video0 set --fov 54 --ev -0.3 --logo activity --mic on
 ```
 
-FOV and EV apply immediately; power-cycle PiSight for logo mode or microphone presence changes. The tool verifies the value returned by the camera after a save. A camera application's resolution selection remains independent of these saved settings. On other hosts, standard UVC video/audio controls still work; the bundled settings utility currently targets Linux.
+FOV, EV and logo mode apply immediately; power-cycle PiSight for microphone presence changes. The tool verifies the value returned by the camera after a save. A camera application's resolution selection remains independent of these saved settings. On other hosts, standard UVC video/audio controls still work; the bundled settings utility currently targets Linux.
 
 The ICS43434 uses the Pi Zero's I²S pins: SCK/BCLK on GPIO 18 (pin 12), WS/LRCLK on GPIO 19 (pin 35), SD on GPIO 20 (pin 38), plus 3.3 V and ground. Connect the mic's L/R select to ground for the left channel. If the microphone does not appear, check `/tmp/pisight-mic.log` on the Pi and confirm the ALSA cards `PiSightMic` and `UAC2Gadget` are present.
 
@@ -121,22 +133,20 @@ The ICS43434 uses the Pi Zero's I²S pins: SCK/BCLK on GPIO 18 (pin 12), WS/LRCL
 
 ### Prerequisites
 
-- Linux host (WSL is fine)
+- x86-64 Linux host (the pinned external toolchain requires this architecture)
 - Git and buildroot dependencies
 
 ### Clone
 
 ```bash
-git clone --recursive https://github.com/sd-zhang/pisight.git
+git clone --branch pizero-hw-mjpeg-encoder --recurse-submodules https://github.com/sd-zhang/pisight.git
 cd pisight
 ```
 
 ### Build
 
 ```bash
-# Buildroot needs Linux; on macOS, run this in a Linux VM.
-# Build from the webcampi submodule; the top-level wrapper has an obsolete patch step.
-cd webcampi
+# On an ARM Mac, use an x86-64 Linux build environment such as Docker Desktop.
 ./build.sh
 ```
 
@@ -146,7 +156,29 @@ When complete, the final SD card image will be in:
 webcampi/buildroot/output/images/sdcard.img
 ```
 
-Flash it as described in [Installation](#installation).
+See [development instructions](docs/development.md) for the verified Linux build setup, submodule workflow and image export checks. Flash the image as described in [Installation](#installation).
+
+## Tested baseline
+
+The accepted 2026-09-28 run delivered **29.96 distinct fps at 1280×720 with the
+microphone open**, with six JPEG errors over roughly two minutes. Native 20- and
+90-second combined captures had continuous 48 kHz audio timestamps. The 1080p
+mode is advertised, but these results cover 720p.
+
+Microphone processing used about 9% CPU with filtering, versus about 5% before
+filtering. Total CPU was around 71–72% in mostly active measurement windows.
+Live tuning and diagnostics toggling were tested; defaults were restored and
+diagnostics left off. Acoustic latency and subjective voice quality remain
+unmeasured. Bulk diagnostic downloads can temporarily reduce video FPS; the
+camera recovered afterward without a lasting slowdown.
+
+Local image: `diagnostics/sdcard-audio-settings.img` (41,431,552 bytes), SHA-256
+`244a83b7ad1cad01d9df80f99996fda27e62de0b45a22f3fb88e0a0393186c39`.
+Images and raw recordings are excluded from Git.
+
+Read the [hardware report](diagnostics/capture-audio-settings-20260928/results.md),
+[current engineering notes](DEBUGGING_NOTES.md), or the
+[story of getting camera and mic working together](docs/the-road-to-simultaneous-av.md).
 
 ## Credits
 

@@ -1,0 +1,4 @@
+FROM pisight-build-env:arm64
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    qemu-system-arm qemu-user-static squashfs-tools python3 jq \
+    && rm -rf /var/lib/apt/lists/*

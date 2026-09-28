@@ -1,52 +1,52 @@
 # PiSight development handoff
 
-This repository has nested submodules: `pisight` -> `webcampi` -> `buildroot`.
-Work on branch `pizero-hw-mjpeg-encoder`. On a fresh computer:
+## Current baseline
 
-```sh
-git clone --branch pizero-hw-mjpeg-encoder --recurse-submodules https://github.com/sd-zhang/pisight.git
-cd pisight
-git submodule update --init --recursive
-```
+Work on `pizero-hw-mjpeg-encoder`. The user accepted the hardware-tested audio
+settings image on 2026-09-28. Read [DEBUGGING_NOTES.md](DEBUGGING_NOTES.md) for
+results, remaining limits and the next useful work. Do not treat old candidate
+images or historical hypotheses as current instructions.
 
-The top-level branch pins the `webcampi` commit. A detached `HEAD` inside a
-checked-out submodule is normal; create a branch there before making new
-`webcampi` commits, and push that branch before pushing the updated top-level
-submodule pointer. Do not accidentally commit generated Buildroot output or
-personal `.idea` files.
+The repository contains nested submodules: `pisight` → `webcampi` → `buildroot`.
+Commit firmware in `webcampi` first, then commit its pointer in the parent.
+Create a named branch before committing from a detached submodule checkout.
+If publishing later, push the nested commit before the parent pointer. Commit
+requests do not authorize pushes, merges, or releases.
 
-Read `DEBUGGING_NOTES.md` before changing USB/audio/video behavior. The current
-source includes the hardware MJPEG encoder, UVC settings, I2S ICS43434 overlay,
-and UAC2 microphone. The user's latest observed result was a silent microphone
-and video that eventually started with very poor frame rate. A mock-ALSA test
-reproduced high-priority `alsaloop` CPU use when the host does not record audio;
-this is a plausible contributor, **not** a confirmed explanation of the Pi's
-full failure. Do not claim either issue fixed without target measurements.
+## Hardware and operating constraints
 
-The user wants to avoid repeated image flashes. Earlier USB serial/network
-composite-gadget attempts degraded UVC; keep diagnostics on the existing
-UVC/UAC2 gadget when possible. The current image has no SSH or USB serial
-console. If the existing diagnostic card has `/boot/PISIGHT.TXT`, analyze it,
-but its logger only writes after UVC `STREAMON`, daemon death, or a long timeout;
-absence of the file proves little. The one-off diagnostic image and its build
-script are local, untracked artifacts documented in `DEBUGGING_NOTES.md`.
+- Target: original Pi Zero / ARM1176, Camera Module 3, hardware MJPEG, ICS43434
+  I2S microphone, simultaneous UVC video and UAC2 audio.
+- Never flash or write host physical drives. The user handles flashing.
+- Docker Desktop is authorized for Linux builds; do not use OrbStack.
+- Do not enable USB serial or networking. Earlier serial use caused persistent
+  video degradation. Settings and diagnostic readback use the existing UVC XU.
+- No host app, new product CLI, or web app is requested yet. Audio tuning and
+  diagnostics capabilities are implemented for a future UVC app.
+- Do not play calibration sounds or claim measured acoustic latency from PCM
+  queue depth or continuous timestamps.
+- Keep the accepted image and recordings locally. Generated images, recordings,
+  build output and IDE files are excluded from Git; don't delete them casually.
 
-For a fresh build, use a Linux environment (a Linux VM is needed on macOS):
+## Development and verification
 
-```sh
-cd webcampi
-./build.sh
-# Result: buildroot/output/images/sdcard.img
-```
+Use `./build.sh` on Linux; see [docs/development.md](docs/development.md).
+The selected external toolchain requires x86-64 Linux. On this ARM Mac the
+working setup is Docker Desktop with a Linux amd64 build container and a Linux
+volume. Export images through a tar stream: direct copies to a Mac bind mount
+previously produced corrupted files. Check image hashes on both sides.
 
-The top-level `build.sh` still runs an obsolete `device-info.patch` step; use
-`webcampi/build.sh` directly until that wrapper is cleaned up. Generated SD
-images live under ignored `webcampi/buildroot/output/` and are **not** supplied
-by `git clone` or `git pull`. The last normal image on the prior Linux build
-host was SHA-256 `e9d89da16f7150d1bb7da683c9048210263992544cab0065718be14a7a431fbf`.
+Tests and evidence are indexed in [diagnostics/README.md](diagnostics/README.md).
+ARM emulation verifies code and ALSA plumbing, not USB/DMA timing, CPU headroom
+or acoustics. Preserve the tested USB scheduling while changing other features.
+There is no single test that proves the entire firmware works on hardware.
 
-The next useful no-flash test is fixed-mode 1280x720 MJPEG frame timing plus
-raw 48 kHz mono USB-mic capture on the same host, with microphone capture
-closed, open, then closed while video remains open. Inspect raw samples and
-the bridge log before changing the audio path. Discord's processing alone
-cannot tell whether the USB PCM samples are silent.
+Diagnostics default off. Enable temporarily through UVC before a capture when
+snapshots are needed, then restore off without Save unless persistence is
+requested. Bulk log downloads can briefly reduce FPS; transfer them after the
+measurement. The existing capture shell script does not enable diagnostics.
+Do not request SD extraction when UVC readback can provide the evidence.
+
+The shutter sensor on this unit appears broken or miswired and did not follow
+physical shutter movement. Its GPIO edge implementation remains, but physical
+shutter operation is unverified and the user accepts a purely physical shutter.

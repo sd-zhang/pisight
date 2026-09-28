@@ -1,0 +1,21 @@
+# Keep test/analysis sources and written reports; generated evidence stays local.
+*
+!*/
+!.gitignore
+!Dockerfile
+!Dockerfile.emulation
+!*.md
+!*.py
+!*.sh
+!*.c
+!*.h
+!*.cpp
+!*.swift
+!*.patch
+!sdcard-audio-settings.img.sha256
+!sdcard-audio-settings.README.txt
+
+# Never include caches, vendored build trees, executable probes or recordings.
+__pycache__/
+*.py[cod]
+busybox-native-src/

@@ -1,0 +1,15 @@
+PiSight UVC audio settings + optional diagnostics, 2026-09-28
+Image: sdcard-audio-settings.img
+Size: 41431552 bytes
+SHA256: 244a83b7ad1cad01d9df80f99996fda27e62de0b45a22f3fb88e0a0393186c39
+
+Diagnostics defaults OFF. When enabled, periodic snapshots stay in bounded RAM
+(4 MiB) and can be downloaded over existing UVC. No periodic SD log writes.
+Audio gain, high/low-pass, bypass, readback/meters and explicit Save are ready
+for the future UVC app. No new host app/CLI, web app or USB serial.
+
+Default audio is still 80 Hz–8 kHz band-pass at 0 dB. Boot/kernel preserved.
+ARM build, emulated ALSA/DSP, settings and packaged-image checks pass.
+Physical Pi CPU/FPS, UVC tuning interoperability and listening remain untested.
+Only the user flashes. See audio-controls-tests/results.md and
+../docs/uvc-audio-controls.md for details.
