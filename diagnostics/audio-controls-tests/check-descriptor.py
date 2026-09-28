@@ -7,5 +7,5 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(['/bin/sh','-ec',script[start:end]],cwd=tmp,check=True)
     assert (p/'guidExtensionCode').read_bytes()==b'PiSightSettings1'
     bitmap=int((p/'bmControls').read_text(),0);count=int((p/'bNumControls').read_text())
-    assert bitmap==15 and count==4, f'FAIL: bitmap={bitmap} bNumControls={count}, expected four advertised controls'
-    print('PASS: gadget setup advertises all four XU controls with unchanged GUID')
+    assert bitmap==31 and count==5, f'FAIL: bitmap={bitmap} bNumControls={count}, expected five advertised controls'
+    print('PASS: gadget setup advertises all five XU controls with unchanged GUID')

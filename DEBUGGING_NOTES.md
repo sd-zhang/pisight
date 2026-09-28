@@ -2,12 +2,26 @@
 
 The user accepted the tested baseline on **2026-09-28**. The objective is smooth
 simultaneous camera and microphone operation, not another speculative image.
+The user has sealed the enclosure. The last confirmed installed firmware is the
+accepted audio-settings baseline; no installation of the video-modes candidate
+was reported. Leave hardware testing deferred until the user chooses to reopen
+or update it.
 
 Local image: `diagnostics/sdcard-audio-settings.img` (41,431,552 bytes).
 SHA-256: `244a83b7ad1cad01d9df80f99996fda27e62de0b45a22f3fb88e0a0393186c39`.
 Firmware source is committed in `webcampi` as `9dd445f` on
 `pizero-hw-mjpeg-encoder`. The image is a local build artifact, not a committed
 file or published release.
+
+## New candidate awaiting hardware verification
+
+`diagnostics/sdcard-video-modes.img` adds selectable advertised presets through
+UVC selector 5 and a Save-and-soft-reboot action, with no physical unplug needed.
+Firmware source is `webcampi` commit `e5b3382` on `pizero-hw-mjpeg-encoder`.
+The accepted image above remains the hardware baseline. Only the settings writer,
+UVC library and gadget setup script differ; kernel/audio binaries are unchanged.
+See [candidate verification](diagnostics/video-modes-tests/results.md) and
+[app protocol](docs/uvc-video-modes.md). The UVC app is still future work.
 
 ## What is working
 

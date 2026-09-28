@@ -43,6 +43,11 @@ static int fallback;
 static void uvc_events_process_standard(struct uvc_device *d,const struct usb_ctrlrequest *c,struct uvc_request_data *r){(void)d;(void)c;(void)r;fallback++;}
 static void uvc_events_process_class(struct uvc_device *d,const struct usb_ctrlrequest *c,struct uvc_request_data *r){(void)d;(void)c;(void)r;fallback++;}
 '''
+data_start=src.index('static void\nuvc_events_process_data(')
+# Compile the real XU settings DATA dispatch, before the unrelated snapshot,
+# legacy settings and streaming handlers. A wrong selector or kind must fail.
+data_end=src.index('\n\tif (dev->xu_unit',src.index('\n\tif (dev->xu_unit',data_start)+1)
+data_dispatch=src[data_start:data_end]+'\n}\n'
 main='''int main(void){
  struct uvc_device dev={.xu_unit=4,.fov=75,.microphone=1};
  struct uvc_request_data out={.length=-1};
@@ -62,7 +67,7 @@ main='''int main(void){
  request.bRequestType=0xa1;request.wValue=0x0201;out.length=-1;uvc_events_process_setup(&dev,&request,&out);if(out.length!=-1||fallback)return 8;
  request.wValue=0x0200;request.wIndex=0x0401;out.length=-1;uvc_events_process_setup(&dev,&request,&out);if(out.length!=-1||fallback)return 9;
  request.wIndex=0x0400;request.bRequest=UVC_GET_CUR;request.wLength=61;out.length=-1;uvc_events_process_setup(&dev,&request,&out);if(out.length!=-1||fallback)return 10;
- for(unsigned selector=3;selector<=4;selector++) {
+ for(unsigned selector=3;selector<=5;selector++) {
   request=(struct usb_ctrlrequest){.bRequestType=0xa1,.bRequest=UVC_GET_LEN,.wValue=selector<<8,.wIndex=0x0400,.wLength=2};
   out.length=-1;uvc_events_process_setup(&dev,&request,&out);if(out.length!=2||out.data[0]!=32||fallback)return 11;
   request.bRequest=UVC_GET_INFO;request.wLength=1;
@@ -76,11 +81,19 @@ main='''int main(void){
   request.wIndex=0x0400;request.bRequestType=0xa1;request.bRequest=UVC_GET_CUR;request.wLength=33;
   out.length=-1;uvc_events_process_setup(&dev,&request,&out);if(out.length!=-1||fallback)return 18;
  }
- puts("PASS: actual UVC diagnostic selector routing, malformed length and existing settings");
+ pisight_controls_init(&dev.settings);
+ request=(struct usb_ctrlrequest){.bRequestType=0x21,.bRequest=UVC_SET_CUR,.wValue=0x0500,.wIndex=0x0400,.wLength=32};
+ out.length=-1;uvc_events_process_setup(&dev,&request,&out);
+ struct uvc_request_data packet={.length=32};packet.data[0]=1;packet.data[1]=1;packet.data[4]=123;packet.data[8]=1;
+ uvc_events_process_data(&dev,&packet);
+ uint8_t response[32];pisight_controls_read(&dev.settings,2,response);
+ if(response[1] || response[8]!=1 || audio_u32(response+4)!=123 || dev.control || dev.control_entity)return 19;
+ pisight_controls_close(&dev.settings);
+ puts("PASS: actual UVC routing, video DATA dispatch, malformed requests and existing settings");
  return 0;
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:
- p=Path(tmp);(p/'control.c').write_text(prefix+src[start:end]+setup+main)
- subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined','-I'+str(root/'lib'),str(p/'control.c'),'-o',str(p/'test')],check=True)
+ p=Path(tmp);(p/'control.c').write_text(prefix+src[start:end]+setup+data_dispatch+main)
+ subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=undefined',f'-DAUDIO_RUNTIME_PATH="{p}/audio"',f'-DDIAGNOSTICS_RUNTIME_PATH="{p}/diagnostics"','-I'+str(root/'lib'),str(p/'control.c'),'-o',str(p/'test')],check=True)
  sys.exit(subprocess.run([str(p/'test')]).returncode)

@@ -125,9 +125,15 @@ On Linux, build the small host configurator with `cc -O2 -Wall host/pisightctl.c
 ./pisightctl /dev/video0 set --fov 54 --ev -0.3 --logo activity --mic on
 ```
 
-FOV, EV and logo mode apply immediately; power-cycle PiSight for microphone presence changes. The tool verifies the value returned by the camera after a save. A camera application's resolution selection remains independent of these saved settings. On other hosts, standard UVC video/audio controls still work; the bundled settings utility currently targets Linux.
+FOV, EV and logo mode apply immediately; restart PiSight for microphone presence changes. The tool verifies the value returned by the camera after a save. A camera application's resolution selection remains independent of these saved settings. On other hosts, standard UVC video/audio controls still work; the bundled settings utility currently targets Linux.
 
 The ICS43434 uses the Pi Zero's I²S pins: SCK/BCLK on GPIO 18 (pin 12), WS/LRCLK on GPIO 19 (pin 35), SD on GPIO 20 (pin 38), plus 3.3 V and ground. Connect the mic's L/R select to ground for the left channel. If the microphone does not appear, check `/tmp/pisight-mic.log` on the Pi and confirm the ALSA cards `PiSightMic` and `UAC2Gadget` are present.
+
+Advertised resolution presets can also be configured through the future UVC app;
+see [video modes and software restart](docs/uvc-video-modes.md). Applying a changed
+advertised list uses a software reboot, with no cable handling. This newer firmware
+capability has passed offline checks; it has not been confirmed on the sealed
+unit, whose last confirmed installed image is the tested baseline below.
 
 ## Building
 

@@ -4,7 +4,8 @@ Firmware capabilities for a future UVC app. There is no new host app, CLI,
 web server, serial interface, or USB endpoint. Find the existing extension
 unit by its 16-byte GUID `PiSightSettings1`; discover its assigned unit ID.
 Selector 1 remains camera settings and selector 2 remains snapshot readback.
-New selectors 3 (audio) and 4 (diagnostics) each carry 32 bytes.
+Selectors 3 (audio) and 4 (diagnostics) each carry 32 bytes.
+Selector 5 configures [advertised video modes and software restart](uvc-video-modes.md).
 
 Use class/interface requests on the VideoControl interface: `wIndex` has the
 unit ID in its high byte and interface number in its low byte; `wValue` is
@@ -61,8 +62,8 @@ Default is off. Apply changes RAM only. Reset restores defaults in RAM only.
 | 28 | 4 | Audio saturated-sample count since latest capture prepare |
 
 Flags: bit 0 recent audio activity (audio selector only), bit 1 unsaved changes
-relative to successful Save/boot settings, bit 2 a Save is pending across either
-selector. Other bits and unused diagnostics bytes are zero. Audio presets use
+relative to successful Save/boot settings, bit 2 a Save is pending across
+selectors 3–5. Other bits and unused diagnostics bytes are zero. Audio presets use
 the same 8-byte layout as SET offsets 8–15. Applied can lag requested while
 capture is closed or fading. Peak updates roughly every 100 ms and clipping
 counts wrap at 2^32. Activity expires after about two seconds without audio
@@ -74,7 +75,7 @@ success alone is not application success. Invalid payloads leave settings intact
 and return status 1 with their token (or zero for a too-short payload).
 Save captures the current desired setting and writes asynchronously in a child
 process, preserving other JSON fields. Poll until bit 2 clears and check status.
-While Save is pending, further SETs on either selector are ignored; their tokens
+While Save is pending, further SETs on selectors 3–5 are ignored; their tokens
 are not accepted. Retry only after completion. There is no token deduplication:
 avoid repeated Save requests, and use modest GET polling (e.g. 5 Hz).
 A failed Save leaves the live setting in RAM and reports status 2. If failure

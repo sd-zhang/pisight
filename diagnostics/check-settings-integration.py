@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='pisight-settings-test-') as d:
     env['PATH'] = str(root/'bin') + ':' + env['PATH']
     def executable(name, content):
         p=root/'bin'/name; p.write_text(content); p.chmod(0o755); return p
-    executable('mount', f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{root}/mount-calls"\n')
+    executable('mount', f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{root}/mount-calls"\n[ "$PISIGHT_TEST_RO_FAIL" != 1 ] || [ "$2" != remount,ro ]\n')
     executable('sync', '#!/bin/sh\nexit 0\n')
     executable('isight-logo', '#!/bin/sh\nexit 0\n')
     executable('jq', f'#!/bin/sh\n[ -z "$PISIGHT_TEST_JQ_FAIL" ] || exit 1\nexec "{J}" "$@"\n')
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='pisight-settings-test-') as d:
                     ('/sys/kernel',str(root/'sys/kernel')),('/var/run',str(root/'run')),
                     ('/run/isight.env',str(root/'run/isight.env')),
                     ('/run/pisight-diagnostics',str(root/'run/pisight-diagnostics')),('/usr/local/bin',str(root/'bin')),
-                    ('/usr/bin/',str(root/'bin')+'/'),('/boot',str(root/'boot'))]:
+                    ('/sbin/reboot',str(root/'bin/reboot')),('/usr/bin/',str(root/'bin')+'/'),('/boot',str(root/'boot'))]:
             text=text.replace(a,b)
         # Route diagnostic log output too, without re-replacing fixture paths.
         for name in ['isight-config-apply.log','uvc-setup.log','uvc-gadget.log']:
@@ -94,6 +94,45 @@ with tempfile.TemporaryDirectory(prefix='pisight-settings-test-') as d:
         p=subprocess.run([str(B),'sh',str(save),*args],env=env,capture_output=True,text=True)
         assert p.returncode!=0 and (root/'boot/isight.json').read_bytes()==saved
     print('PASS: invalid audio/diagnostics cannot alter persisted config')
+    # Saving a video set changes only the advertised list, and boot consumes it.
+    presets={1:['1280x720'],2:['1920x1080'],3:['1280x720','1920x1080'],
+             4:['1280x960'],5:['1280x720','1280x960'],6:['1920x1080','1280x960'],
+             7:['1280x720','1920x1080','1280x960']}
+    for mask,modes in presets.items():
+        before=json.loads((root/'boot/isight.json').read_text())
+        p=subprocess.run([str(B),'sh',str(save),'--resolutions',str(mask)],env=env,capture_output=True,text=True)
+        assert p.returncode==0, p.stderr
+        assert json.loads((root/'boot/isight.json').read_text())==dict(before,resolutions=modes)
+        subprocess.run([str(B),'sh',str(apply)],env=env,check=True,capture_output=True)
+        assert 'ISIGHT_RESOLUTIONS="'+' '.join(modes)+' "' in (root/'run/isight.env').read_text()
+    print('PASS: all seven video sets persist without changing other settings and reload at boot')
+    saved=(root/'boot/isight.json').read_bytes()
+    for mask in ['0','8','255','-1','01','','abc']:
+        for op in ['--resolutions','--resolutions-reboot']:
+            p=subprocess.run([str(B),'sh',str(save),op,mask],env=env,capture_output=True,text=True)
+            assert p.returncode!=0 and (root/'boot/isight.json').read_bytes()==saved
+    # Only the external reboot endpoint is mocked. Assert disk contents and RO
+    # transition *at invocation*, not just that the mock command was called.
+    executable('reboot', f'''#!/bin/sh
+cp "{root}/boot/isight.json" "{root}/reboot-config"
+tail -n 1 "{root}/mount-calls" > "{root}/reboot-mount"
+exit "${{PISIGHT_TEST_REBOOT_FAIL:-0}}"
+''')
+    started=time.monotonic()
+    p=subprocess.run([str(B),'sh',str(save),'--resolutions-reboot','1'],env=env,capture_output=True,text=True)
+    assert p.returncode==0,p.stderr
+    assert time.monotonic()-started>=1, 'allow control transfer to complete before reboot'
+    assert json.loads((root/'reboot-config').read_text())['resolutions']==['1280x720']
+    assert (root/'reboot-mount').read_text().strip()==f'-o remount,ro {root}/boot'
+    (root/'reboot-config').unlink()
+    p=subprocess.run([str(B),'sh',str(save),'--resolutions-reboot','2'],env=dict(env,PISIGHT_TEST_JQ_FAIL='1'),capture_output=True,text=True)
+    assert p.returncode!=0 and not (root/'reboot-config').exists()
+    p=subprocess.run([str(B),'sh',str(save),'--resolutions-reboot','2'],env=dict(env,PISIGHT_TEST_RO_FAIL='1'),capture_output=True,text=True)
+    assert p.returncode!=0 and not (root/'reboot-config').exists()
+    p=subprocess.run([str(B),'sh',str(save),'--resolutions-reboot','2'],env=dict(env,PISIGHT_TEST_REBOOT_FAIL='1'),capture_output=True,text=True)
+    assert p.returncode!=0 and (root/'reboot-config').exists()
+    saved=(root/'boot/isight.json').read_bytes()
+    print('PASS: reboot follows successful save/remount and delay; save failures never reboot; reboot failures surface')
     # Kernel lock serializes camera and audio writers and survives neither crash nor exit.
     import fcntl
     with (root/'run/config.lock').open('w') as lock:

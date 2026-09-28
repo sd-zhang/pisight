@@ -3,6 +3,7 @@
 Current status: [accepted baseline](../DEBUGGING_NOTES.md).
 Latest hardware evidence: [audio settings run](capture-audio-settings-20260928/results.md).
 Firmware verification: [audio controls checks](audio-controls-tests/results.md).
+New candidate: [video mode controls](video-modes-tests/results.md) (hardware pending).
 Protocol for the future app: [UVC controls](../docs/uvc-audio-controls.md).
 
 This directory contains source tests and written reports. Images, raw captures,
@@ -17,6 +18,7 @@ The following use a host C compiler, Python 3 and a POSIX shell; no hardware or
 physical drives are accessed:
 
 ```sh
+sh diagnostics/video-modes-tests/run-native.sh
 python3 diagnostics/check-mic-supervisor.py
 python3 diagnostics/check-diagnostic-log.py sh
 python3 diagnostics/audio-controls-tests/check-diagnostics.py sh

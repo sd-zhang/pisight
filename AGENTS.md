@@ -7,6 +7,12 @@ settings image on 2026-09-28. Read [DEBUGGING_NOTES.md](DEBUGGING_NOTES.md) for
 results, remaining limits and the next useful work. Do not treat old candidate
 images or historical hypotheses as current instructions.
 
+The enclosure is now sealed. The last confirmed installed image is the accepted
+audio-settings baseline. The newer video-modes/software-reboot candidate passed
+offline checks but has not been hardware-tested or confirmed installed. Keep
+that distinction in future app work; do not assume selector 5 is on this unit.
+Hardware verification is deferred until the user chooses to update the device.
+
 The repository contains nested submodules: `pisight` → `webcampi` → `buildroot`.
 Commit firmware in `webcampi` first, then commit its pointer in the parent.
 Create a named branch before committing from a detached submodule checkout.
